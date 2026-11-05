@@ -5,6 +5,7 @@ import type { Edit, PageInfo, TextRun } from '../engine/types.ts'
 import { LANGUAGES, reviewReasons } from '../ocr/ocr.ts'
 import { useNearViewport } from './hooks.ts'
 import { Icon } from './icons.tsx'
+import { TOUCH } from './touch.ts'
 import type { Snapshot } from './store.ts'
 
 // --------------------------------------------------------------------------------------- changes
@@ -27,7 +28,13 @@ export function ChangesPanel(p: { edits: Edit[]; corrections: number; onJump: (e
         <Icon name="pencil" size={28} />
         <h3>No changes yet</h3>
         <p>
+          {TOUCH ? (
+            'Tap any text to edit it, or pick a tool from the bar below to add text, highlight, draw, sign or erase.'
+          ) : (
+            <>
           Click any text to edit it. <kbd>T</kbd> adds text, <kbd>H</kbd> highlights, <kbd>G</kbd> signs, <kbd>X</kbd> erases — or press <kbd>Ctrl</kbd>+<kbd>F</kbd> to find and replace.
+            </>
+          )}
         </p>
       </div>
     )

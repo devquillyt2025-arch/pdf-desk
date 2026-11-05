@@ -79,6 +79,7 @@ const PATHS = {
   italic: 'M10 4h8 M6 20h8 M14 4l-4 16',
   chevronLeft: 'M15 6l-6 6 6 6',
   chevronRight: 'M9 6l6 6-6 6',
+  more: 'M5 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M17 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0',
 } as const
 
 export type IconName = keyof typeof PATHS

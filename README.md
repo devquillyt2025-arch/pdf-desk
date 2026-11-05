@@ -106,6 +106,25 @@ spot, and nothing else on the page may change. If it lands on top of other text,
 together is fine even though each one lands where its neighbour was — each is checked on its own. In a scan the hidden
 searchable text moves with the picture of the line. Dragging a line back to where it was undoes the move.
 
+**On a phone or tablet it works like an app.**
+
+- **Install it.** Open the site in Chrome (Android: menu → *Install app*) or Safari (iPhone: Share → *Add to Home Screen*).
+  It then opens full screen with its own icon and no browser bar, starts instantly, and — once it has been opened — **works
+  offline**: the editor runs entirely on the device (a service worker keeps a copy of the app; it never touches the cloud
+  library's `/api`, and files you open are never stored by it).
+- **Thumb-reach layout.** The tools are a dock at the bottom (with captions; swipe it sideways for the rest), and the
+  options of the current tool — colours, line width, *Select all* — sit just above it. The top bar is a back arrow, the file
+  name, undo/redo, **Save & verify** and a **⋯** menu (zoom, *Show the original*, cloud library, fonts, theme, open).
+- **Sheets.** Changes / Proofread / Find open as a sheet from the bottom (the **Review** button in the dock; swipe it down
+  or tap outside to put it away). Dialogs are sheets too. Notices drop in from the top. The dock steps aside while you type.
+- **Gestures.** **Pinch with two fingers to zoom** (the page stays under your fingers) and drag with two to pan. With the
+  Edit, Add text, Picture and Signature tools one finger scrolls and taps act; with the tools that drag on the page (Select,
+  Erase, Table, marks, shapes, Pen) one finger belongs to the tool, so two fingers scroll. The browser's **Back** button
+  (or Android's back swipe) moves between the start page, the editor and the tools — an open document stays open.
+- There is no hover on a touch screen, so the little move handle does not appear — use the Select tool to move things.
+- Notches and home indicators are respected (`env(safe-area-inset-*)`); the status bar takes the app's colour, in the theme
+  you chose.
+
 ## Editing tables
 
 A PDF has no “table” object — only lines, filled boxes and loose text that line up. The **Table** tool (`B`) finds

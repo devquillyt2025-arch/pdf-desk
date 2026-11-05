@@ -15,8 +15,10 @@ import { addUserFont, engine } from './ui/engine.ts'
 import { FindPanel } from './ui/FindPanel.tsx'
 import { ScrollRootContext, useEvent, usePageEdits, useStoredState } from './ui/hooks.ts'
 import { Icon } from './ui/icons.tsx'
+import { TOUCH } from './ui/touch.ts'
 import { prepareImage } from './ui/imageprep.ts'
 import { InlineEditor, type EditorResult } from './ui/InlineEditor.tsx'
+import { MoreMenu, type MoreItem } from './ui/MoreMenu.tsx'
 import { ConfirmModal, FontsModal, PasswordModal, ReportModal, SignatureModal } from './ui/Modals.tsx'
 import { PageView } from './ui/PageView.tsx'
 import { ChangesPanel, ProofPanel } from './ui/Panels.tsx'
@@ -40,9 +42,13 @@ const DEFAULT_ADD_STYLE: FontStyle = { family: 'sans', bold: false, italic: fals
 const NO_BOXES: FindBox[] = []
 const NO_SEL: SelKey[] = []
 
+/** A finger, not a mouse: the help says "tap", and the tools that drag on the page mention how to scroll. */
+const DRAGS_ON_PAGE = new Set<Tool>(['select', 'erase', 'highlight', 'underline', 'strike', 'rect', 'ellipse', 'line', 'arrow', 'pen', 'table'])
+const touchHint = (tool: Tool, text: string) => (TOUCH ? text.replace(/\bClick\b/g, 'Tap') + (DRAGS_ON_PAGE.has(tool) ? ' Two fingers scroll and zoom.' : '') : text)
+
 /** One line of help that appears for a few seconds when you pick a tool. */
 const HINTS: Record<Tool, (redact: boolean) => string> = {
-  select: () => 'Click anything to select it, then drag it to move it. Shift-click adds to the selection, drag a box around several, or press Ctrl+A for the whole page.',
+  select: () => (TOUCH ? 'Tap anything to select it, then drag it to move it, or drag a box around several.' : 'Click anything to select it, then drag it to move it. Shift-click adds to the selection, drag a box around several, or press Ctrl+A for the whole page.'),
   edit: () => 'Click any text to edit it.',
   add: () => 'Click where the new text should go.',
   erase: (redact) => (redact ? 'Drag over an area to redact it with a black box.' : 'Drag over an area to erase what’s there.'),
@@ -252,6 +258,11 @@ export default function App() {
     const root = document.documentElement
     if (theme === 'system') delete root.dataset.theme
     else root.dataset.theme = theme
+    // the phone's status bar (and an installed app's title bar) takes the app's colour, in the chosen theme
+    for (const m of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+      const dark = theme === 'system' ? m.media.includes('dark') : theme === 'dark'
+      m.content = dark ? '#111a2e' : '#ffffff'
+    }
   }, [theme])
 
   // A selection only makes sense with the Select tool.
@@ -376,6 +387,23 @@ export default function App() {
     setEditing(null)
     setView('home')
   })
+  // The browser's Back button (an Android swipe, too) moves between the start page, the editor and the tools, like
+  // screens in an app, instead of leaving the site. An open document is never lost by it (Home keeps it open).
+  const popTo = useEvent((v: View | undefined) => {
+    const target: View = v && (v !== 'editor' || hasDoc) ? v : 'home'
+    setEditing(null)
+    setView(target)
+    if (target !== v) history.replaceState({ pagedesk: target }, '')
+  })
+  useEffect(() => {
+    history.replaceState({ pagedesk: 'home' }, '')
+    const onPop = (e: PopStateEvent) => popTo(e.state?.pagedesk)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [popTo])
+  useEffect(() => {
+    if (history.state?.pagedesk !== view) history.pushState({ pagedesk: view }, '')
+  }, [view])
   const closeDoc = useEvent(() => {
     dispatch({ type: 'close' })
     setDocCloud(null)
@@ -675,9 +703,11 @@ export default function App() {
     scroller?.scrollTo({ top: Math.max(0, (tops[i] ?? 0) - 12), behavior: 'smooth' })
     setCurrent(i)
   })
-  const scrollToRect = useEvent((page: number, rect: Rect) => {
+  const isPhone = () => window.matchMedia('(max-width: 720px)').matches
+  const scrollToRect = useEvent((page: number, rect: Rect, sheetOver = panelOpen && isPhone()) => {
     if (!scroller) return
-    scroller.scrollTo({ top: Math.max(0, (tops[page] ?? 0) + rect[1] * k - scroller.clientHeight * 0.3), behavior: 'smooth' })
+    // (on a phone the open panel is a sheet over the lower part of the screen: keep the thing in the strip above it)
+    scroller.scrollTo({ top: Math.max(0, (tops[page] ?? 0) + rect[1] * k - scroller.clientHeight * (sheetOver ? 0.08 : 0.3)), behavior: 'smooth' })
   })
 
   useEffect(() => {
@@ -689,6 +719,65 @@ export default function App() {
     }
     scroller.addEventListener('wheel', onWheel, { passive: false })
     return () => scroller.removeEventListener('wheel', onWheel)
+  }, [scroller])
+
+  // Two fingers on the page (phones and tablets): pinch to zoom and drag to pan. One finger stays with the tool —
+  // it scrolls the page, or draws / moves, depending on the tool (see `touch-action` in the CSS).
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  const scrollTarget = useRef<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const t = scrollTarget.current
+    scrollTarget.current = null
+    if (!t || !scroller) return
+    scroller.scrollLeft = t.left
+    scroller.scrollTop = t.top
+  }, [zoom, scroller])
+  useEffect(() => {
+    if (!scroller) return
+    type Pinch = { z0: number; d0: number; px: number; py: number }
+    let g: Pinch | null = null
+    const centre = (t: TouchList) => {
+      const r = scroller.getBoundingClientRect()
+      const a = t[0]
+      const b = t[1]
+      return { x: (a.clientX + b.clientX) / 2 - r.left, y: (a.clientY + b.clientY) / 2 - r.top, d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) }
+    }
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return void (g = null)
+      const c = centre(e.touches)
+      const z = zoomRef.current
+      // the point of the page under the fingers, in "100 %" units, so it can be kept there while the zoom changes
+      g = { z0: z, d0: Math.max(1, c.d), px: (scroller.scrollLeft + c.x - PAD) / z, py: (scroller.scrollTop + c.y - PAD) / z }
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!g || e.touches.length !== 2) return
+      e.preventDefault()
+      const c = centre(e.touches)
+      const z = Math.min(4, Math.max(0.25, Math.round(g.z0 * (c.d / g.d0) * 100) / 100))
+      const left = g.px * z + PAD - c.x
+      const top = g.py * z + PAD - c.y
+      if (z === zoomRef.current) {
+        scroller.scrollLeft = left
+        scroller.scrollTop = top
+      } else {
+        scrollTarget.current = { left, top }
+        setZoom(z)
+      }
+    }
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) g = null
+    }
+    scroller.addEventListener('touchstart', onStart, { passive: true })
+    scroller.addEventListener('touchmove', onMove, { passive: false })
+    scroller.addEventListener('touchend', onEnd)
+    scroller.addEventListener('touchcancel', onEnd)
+    return () => {
+      scroller.removeEventListener('touchstart', onStart)
+      scroller.removeEventListener('touchmove', onMove)
+      scroller.removeEventListener('touchend', onEnd)
+      scroller.removeEventListener('touchcancel', onEnd)
+    }
   }, [scroller])
 
   // ------------------------------------------------------------------------------- review state
@@ -870,7 +959,9 @@ export default function App() {
 
   const jumpToEdit = useEvent((e: Edit) => {
     const r: Rect = e.kind === 'table' ? tableBounds(e.table!.model) : e.kind === 'overlay' ? overlayBounds(e.overlay!) : e.kind === 'erase' ? e.rect! : e.kind === 'replace' ? e.run!.rect : [e.x!, e.baseline! - e.style.size, e.x! + 40, e.baseline!]
-    scrollToRect(e.page, r)
+    // on a phone, tapping a change puts the sheet away so the change itself can be seen
+    if (isPhone()) setPanelOpen(false)
+    scrollToRect(e.page, r, false)
     if (e.kind === 'overlay') {
       setTool('select')
       setSelectedId(e.id, e.page)
@@ -1451,10 +1542,43 @@ export default function App() {
   const docKind = !pageKinds.length ? null : pageKinds.every((i) => i.kind === 'text') ? 'Searchable' : pageKinds.some(isScanPage) ? 'Contains scans' : 'Searchable'
   const nChanges = snap.edits.length
   const toolMeta = view !== 'home' && view !== 'editor' ? TOOLS.find((t) => t.id === view) : undefined
+  // On a phone the side panel is a bottom sheet: drag its handle down to put it away.
+  const sheet = useRef<HTMLElement>(null)
+  const dragSheet = (e: React.PointerEvent) => {
+    const el = sheet.current
+    if (!el) return
+    const y0 = e.clientY
+    let dy = 0
+    const move = (ev: PointerEvent) => {
+      dy = Math.max(0, ev.clientY - y0)
+      el.style.transition = 'none'
+      el.style.transform = `translateY(${dy}px)`
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      el.style.transition = ''
+      if (dy > 80) setPanelOpen(false)
+      else el.style.transform = ''
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }
+  const cycleTheme = () => setTheme(theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system')
+  // what the top bar has no room for on a phone (the bar itself shows these on wider screens)
+  const moreItems: MoreItem[] = [
+    ...(inEditor ? [{ key: 'original', label: 'Show the original', icon: 'eye' as const, on: showOriginal, onSelect: () => setShowOriginal((v) => !v) }] : []),
+    ...(cloud.status === 'ready' || cloud.status === 'locked' ? [{ key: 'cloud', label: 'Cloud library', icon: cloud.status === 'ready' ? ('cloudCheck' as const) : ('cloud' as const), onSelect: openLibrary }] : []),
+    { key: 'fonts', label: 'Fonts for other scripts', icon: 'font', onSelect: () => setFontsOpen(true) },
+    { key: 'theme', label: `Theme: ${theme}`, icon: theme === 'dark' ? 'moon' : 'sun', onSelect: cycleTheme },
+    { key: 'open', label: 'Open a PDF…', icon: 'upload', onSelect: () => fileInput.current?.click() },
+  ]
 
   // ------------------------------------------------------------------------------------ render
   return (
-    <div className="app">
+    <div className="app" data-view={view === 'home' || view === 'editor' ? view : 'tool'}>
       <header className="topbar" data-view={view === 'home' || view === 'editor' ? view : 'tool'}>
         <button type="button" className="brand" onClick={goHome} aria-label="PageDesk — back to the home page" title="Back to the home page">
           <span className="logo" aria-hidden="true">
@@ -1464,7 +1588,7 @@ export default function App() {
         </button>
 
         {view !== 'home' && (
-          <button type="button" className="btn home-btn" onClick={goHome} title="Back to the home page — an open document stays open">
+          <button type="button" className="btn home-btn" onClick={goHome} aria-label="Home" title="Back to the home page — an open document stays open">
             <Icon name="home" size={16} />
             <span className="lbl">Home</span>
           </button>
@@ -1550,7 +1674,7 @@ export default function App() {
             <button type="button" className={`icon-btn tb-thumbs ${thumbsOpen ? 'on' : ''}`} aria-label="Toggle page list" aria-pressed={thumbsOpen} title="Pages" onClick={() => setThumbsOpen((v) => !v)}>
               <Icon name="sidebar" />
             </button>
-            <button type="button" className={`icon-btn ${panelOpen ? 'on' : ''}`} aria-label="Toggle side panel" aria-pressed={panelOpen} title="Changes & proofreading" onClick={() => setPanelOpen((v) => !v)}>
+            <button type="button" className={`icon-btn tb-panel ${panelOpen ? 'on' : ''}`} aria-label="Toggle side panel" aria-pressed={panelOpen} title="Changes & proofreading" onClick={() => setPanelOpen((v) => !v)}>
               <Icon name="panel" />
             </button>
           </>
@@ -1564,9 +1688,10 @@ export default function App() {
         <button type="button" className="icon-btn tb-opt" aria-label="Fonts for other scripts" title="Fonts for other scripts" onClick={() => setFontsOpen(true)}>
           <Icon name="font" />
         </button>
-        <button type="button" className="icon-btn tb-opt" aria-label={`Theme: ${theme}`} title={`Theme: ${theme} (click to change)`} onClick={() => setTheme(theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system')}>
+        <button type="button" className="icon-btn tb-opt" aria-label={`Theme: ${theme}`} title={`Theme: ${theme} (click to change)`} onClick={cycleTheme}>
           <Icon name={theme === 'dark' ? 'moon' : 'sun'} />
         </button>
+        <MoreMenu items={moreItems} zoom={inEditor ? { value: zoom, onChange: setZoom } : undefined} />
         <button type="button" className="btn tb-open" onClick={() => fileInput.current?.click()}>
           <Icon name="upload" size={16} />
           <span className="lbl">Open</span>
@@ -1606,7 +1731,7 @@ export default function App() {
       )}
       {view !== 'home' && view !== 'editor' && <ToolView key={view} id={view} onOpenInEditor={openFromTool} />}
       {hasDoc && (
-        <div className={`editor-shell ${view === 'editor' ? '' : 'is-hidden'}`}>
+        <div className={`editor-shell ${view === 'editor' ? '' : 'is-hidden'}`} data-typing={!!editing}>
         <Ribbon
           tool={tool}
           onTool={setTool}
@@ -1626,6 +1751,9 @@ export default function App() {
           onEraseRedact={setEraseRedact}
           findOpen={panelOpen && panelTab === 'find'}
           onFind={openFind}
+          panelOpen={panelOpen}
+          panelCount={nChanges}
+          onPanel={() => setPanelOpen((v) => !v)}
         />
         <div className="body" data-thumbs={thumbsOpen} data-panel={panelOpen}>
           {thumbsOpen && <Thumbs engine={engine} docId={doc.docId} sizes={doc.sizes} infos={doc.infos} editsOf={editsOf} current={current} onGo={scrollToPage} />}
@@ -1633,7 +1761,7 @@ export default function App() {
           <ScrollRootContext.Provider value={scroller}>
             <div className={`viewer tool-${tool}`} ref={setScroller} onScroll={onScroll}>
               <div className={`hint ${hintVisible ? 'show' : ''}`} aria-live="polite">
-                {showOriginal ? 'Showing the original — your changes are hidden.' : HINTS[tool](eraseRedact)}
+                {showOriginal ? 'Showing the original — your changes are hidden.' : touchHint(tool, HINTS[tool](eraseRedact))}
               </div>
               <div className="pages" style={{ padding: PAD, gap: GAP }}>
                 {doc.sizes.map((size, i) => (
@@ -1691,8 +1819,10 @@ export default function App() {
             </div>
           </ScrollRootContext.Provider>
 
+          {panelOpen && <div className="sheet-scrim" onClick={() => setPanelOpen(false)} aria-hidden="true" />}
           {panelOpen && (
-            <aside className="panel" aria-label="Changes and proofreading">
+            <aside className="panel" ref={sheet} data-tab={panelTab} aria-label="Changes and proofreading">
+              <div className="sheet-grip" onPointerDown={dragSheet} aria-hidden="true" />
               <div className="tabs" role="tablist">
                 <button type="button" role="tab" aria-selected={panelTab === 'changes'} className={panelTab === 'changes' ? 'on' : ''} onClick={() => setPanelTab('changes')}>
                   Changes

@@ -80,6 +80,10 @@ export function Ribbon(p: {
   onEraseRedact: (v: boolean) => void
   findOpen: boolean
   onFind: () => void
+  /** the side panel (a bottom sheet on a phone) and a button for it that only the phone layout shows */
+  panelOpen: boolean
+  panelCount: number
+  onPanel: () => void
 }) {
   const sel = p.tool === 'select' && p.selected ? styleOf(p.selected) : null
   const kind: 'highlight' | 'stroke' | 'sign' | 'image' | 'none' = sel
@@ -101,6 +105,7 @@ export function Ribbon(p: {
 
   return (
     <div className="ribbon" role="toolbar" aria-label="Tools">
+      <div className="rb-tools">
       {GROUPS.map((g, gi) => (
         <div key={g.label} className="rb-group" role="radiogroup" aria-label={g.label}>
           {gi > 0 && <span className="rb-sep" aria-hidden="true" />}
@@ -117,10 +122,12 @@ export function Ribbon(p: {
             >
               <Icon name={t.icon} size={17} />
               {t.text && <span className="rb-lbl">{t.label}</span>}
+              <span className="rb-cap">{t.label}</span>
             </button>
           ))}
         </div>
       ))}
+      </div>
 
       <span className="rb-sep" aria-hidden="true" />
       <div className="rb-style" aria-live="polite">
@@ -187,9 +194,14 @@ export function Ribbon(p: {
       </div>
 
       <span className="spacer" />
-      <button type="button" className={`rb-btn ${p.findOpen ? 'on' : ''}`} aria-pressed={p.findOpen} title="Find and replace (Ctrl+F)" onClick={p.onFind}>
+      <button type="button" className={`rb-btn rb-find ${p.findOpen ? 'on' : ''}`} aria-pressed={p.findOpen} title="Find and replace (Ctrl+F)" onClick={p.onFind}>
         <Icon name="search" size={17} />
         <span className="rb-lbl">Find</span>
+      </button>
+      <button type="button" className={`rb-btn rb-panel ${p.panelOpen ? 'on' : ''}`} aria-pressed={p.panelOpen} aria-label="Changes, proofreading and find" onClick={p.onPanel}>
+        <Icon name="panel" size={17} />
+        <span className="rb-cap">Review</span>
+        {p.panelCount > 0 && <span className="count">{p.panelCount}</span>}
       </button>
     </div>
   )

@@ -204,6 +204,7 @@ kbd {
 /* ─────────────────────────────────────────────────────────────── layout */
 .app {
   height: 100%;
+  height: 100dvh; /* a phone's address bar comes and goes: follow what is really visible */
   display: grid;
   grid-template-rows: var(--topbar) 1fr;
 }
@@ -1497,6 +1498,7 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: max-content; /* a fixed box centred with left:50% would otherwise shrink to half the screen */
   max-width: min(640px, calc(100vw - 32px));
   padding: 10px 10px 10px 16px;
   border-radius: 12px;
@@ -3073,8 +3075,10 @@ button.brand:hover {
   }
 }
 @media (max-width: 830px) {
-  .tb-opt {
-    display: none;
+  /* (the start page has room for them: it has nothing else in its bar) */
+  .topbar:not([data-view='home']) .tb-opt,
+  .topbar:not([data-view='home']) .tb-open {
+    display: none; /* all of these are in the "more" menu */
   }
 }
 @media (max-width: 720px) {
@@ -3091,8 +3095,8 @@ button.brand:hover {
   }
 }
 @media (max-width: 400px) {
-  .topbar .brand {
-    display: none; /* the Home button does the same job */
+  .topbar:not([data-view='home']) .brand {
+    display: none; /* the Home button does the same job (on the start page itself the logo is all the bar has) */
   }
 }
 @media (max-width: 720px) {
@@ -3111,5 +3115,605 @@ button.brand:hover {
 @media (max-width: 420px) {
   .tb-open {
     display: none; /* files are opened from the start page here; Save & verify must stay in view */
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────── phones & touch */
+/* the "more" menu: what the top bar has no room for below 830 px */
+.more {
+  display: none;
+  position: relative;
+}
+@media (max-width: 830px) {
+  .topbar:not([data-view='home']) .more {
+    display: block;
+  }
+}
+.more-menu {
+  position: fixed; /* the bar scrolls sideways on tiny screens, which would clip anything absolute inside it */
+  top: calc(var(--topbar) - 4px);
+  right: 8px;
+  z-index: 70;
+  min-width: 230px;
+  max-width: calc(100vw - 16px);
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-pop);
+}
+.more-item {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 550;
+  text-align: left;
+}
+.more-item:hover,
+.more-item:active {
+  background: var(--surface-3);
+}
+.more-item.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.more-zoom {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 12px;
+  font-weight: 550;
+}
+.more-zoom > span:first-child {
+  flex: 1;
+}
+.more-zoom .zoom-label {
+  min-width: 46px;
+  text-align: center;
+}
+
+/* Touch: one finger scrolls the page — except under a tool that draws or drags on it, where the finger belongs to the
+   tool (two fingers scroll and pinch-zoom then, handled in App). */
+.viewer {
+  touch-action: pan-x pan-y;
+}
+.overlay.tool-select,
+.overlay.tool-table,
+.overlay.tool-highlight,
+.overlay.tool-underline,
+.overlay.tool-strike,
+.overlay.tool-rect,
+.overlay.tool-ellipse,
+.overlay.tool-line,
+.overlay.tool-arrow,
+.overlay.tool-pen {
+  touch-action: none;
+}
+@media (hover: none) {
+  .run:hover {
+    background: transparent; /* a finger leaves no pointer behind, so a hover highlight would stick after a tap */
+    box-shadow: none;
+  }
+}
+
+/* the text style bar must stay on the screen: on a phone it wraps into two rows */
+@media (max-width: 560px) {
+  .editor-bar {
+    flex-wrap: wrap;
+    white-space: normal;
+    max-width: calc(100vw - 16px);
+    row-gap: 4px;
+  }
+  .editor-bar .bar-sep {
+    display: none;
+  }
+}
+
+/* very narrow: Save & verify (with its change count) must stay whole, so the bar gives up its least urgent parts */
+@media (max-width: 420px) {
+  .topbar[data-view='editor'] .cloud-chip:not(.error) {
+    display: none; /* the "more" menu opens the library; a draft that failed to save still shows its chip */
+  }
+}
+@media (max-width: 340px) {
+  .topbar .home-btn .lbl {
+    display: none !important; /* the house icon alone, from here down */
+  }
+}
+
+/* dialogs on a narrow screen: the grid track must not grow with a wide child, and the buttons may wrap */
+.scrim {
+  grid-template-columns: minmax(0, 1fr);
+}
+.modal {
+  min-width: 0;
+}
+.modal footer {
+  flex-wrap: wrap;
+}
+@media (max-width: 560px) {
+  .scrim {
+    padding: 12px;
+  }
+  .modal header {
+    padding: 16px 14px 12px 16px;
+  }
+  .modal-body {
+    padding: 0 16px 16px;
+  }
+  .modal footer {
+    padding: 12px 16px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────── phone: it should feel like an app
+   Below 720 px the tool ribbon becomes a dock at the bottom (where the thumb is), the side panel and the
+   dialogs become bottom sheets, and the top bar shrinks to a title with the few things you reach for. */
+.rb-cap,
+.sheet-scrim,
+.sheet-grip,
+.rb-panel {
+  display: none;
+}
+.rb-tools {
+  display: contents; /* on a wide screen the tool groups simply sit in the ribbon */
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes drop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+}
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --topbar: calc(52px + env(safe-area-inset-top, 0px));
+  }
+  html,
+  body {
+    overscroll-behavior: none; /* no pull-to-refresh, no rubber band: the app stays put */
+  }
+
+  /* top bar: back, the file name, and the few things you reach for */
+  .topbar {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+  }
+  .topbar .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .topbar .home-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+  }
+  .topbar .home-btn .lbl {
+    display: none !important;
+  }
+  .topbar .btn.primary {
+    height: 40px;
+    border-radius: 12px;
+  }
+  .topbar .tb-panel {
+    display: none; /* the dock has its own button for the panel */
+  }
+  .topbar[data-view='editor'] .file-pill {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none;
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+  }
+  .topbar[data-view='editor'] .file-pill .badge,
+  .topbar[data-view='editor'] .spacer {
+    display: none;
+  }
+  .topbar .file-name {
+    font-size: 15px;
+    font-weight: 650;
+  }
+
+  /* the dock: options of the current tool above, the tools below */
+  .editor-shell {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .editor-shell > .body {
+    grid-row: 1;
+  }
+  .editor-shell > .ribbon {
+    grid-row: 2;
+  }
+  .editor-shell[data-typing='true'] > .ribbon {
+    display: none; /* the keyboard needs the room; the text has its own style bar */
+  }
+  .ribbon {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0;
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    overflow: visible;
+    border-bottom: 0;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.06);
+    z-index: 20;
+  }
+  .rb-tools {
+    display: flex;
+    grid-row: 2;
+    grid-column: 1;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+  .rb-tools::-webkit-scrollbar {
+    display: none;
+  }
+  .ribbon > .rb-sep,
+  .ribbon > .spacer,
+  .ribbon > .rb-find {
+    display: none;
+  }
+  .rb-btn {
+    flex-direction: column;
+    gap: 3px;
+    width: 58px;
+    height: 54px;
+    padding: 4px 2px;
+    border-radius: 12px;
+    scroll-snap-align: start;
+  }
+  .rb-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+  .rb-btn .rb-lbl {
+    display: none;
+  }
+  .rb-btn .rb-cap {
+    display: block;
+    font-size: 10.5px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+  .rb-sep {
+    margin: 0 4px;
+    height: 30px;
+  }
+  .ribbon .rb-panel {
+    display: flex;
+    position: relative;
+    grid-row: 2;
+    grid-column: 2;
+    margin: 6px 8px 6px 4px;
+    box-shadow: -14px 0 10px -6px var(--surface); /* the tools fade out underneath it */
+  }
+  .rb-panel .count {
+    position: absolute;
+    top: 1px;
+    right: 6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 10.5px;
+  }
+  .rb-style {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    flex-wrap: nowrap;
+    min-height: 52px;
+    padding: 6px 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .rb-style:empty {
+    display: none;
+  }
+  .rb-style .muted {
+    display: none; /* the hint above the page says it already */
+  }
+  .rb-style .swatch {
+    width: 30px;
+    height: 30px;
+  }
+  .rb-style .swatches {
+    gap: 8px;
+  }
+  .rb-style .small-seg button {
+    height: 34px;
+    padding: 0 9px;
+  }
+  .rb-style select,
+  .rb-style .btn.small {
+    height: 36px;
+  }
+
+  /* the side panel is a sheet that slides up from the bottom */
+  .sheet-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: var(--scrim);
+    animation: fade 160ms var(--ease);
+  }
+  .panel {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    height: min(72dvh, 640px);
+    z-index: 40;
+    border: 0;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -10px 40px rgba(15, 23, 42, 0.3);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: sheet-up 260ms var(--ease);
+    transition: transform 200ms var(--ease);
+  }
+  .sheet-grip {
+    display: block;
+    position: relative;
+    flex: none;
+    height: 26px;
+    touch-action: none;
+    cursor: grab;
+  }
+  .sheet-grip::after {
+    content: '';
+    position: absolute;
+    top: 9px;
+    left: 50%;
+    width: 40px;
+    height: 5px;
+    margin-left: -20px;
+    border-radius: 3px;
+    background: var(--border-strong);
+  }
+  .tabs {
+    padding-top: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs button {
+    height: 42px;
+    flex: none;
+  }
+
+  /* dialogs are sheets too */
+  .scrim {
+    align-items: end;
+    padding: 0;
+  }
+  .modal,
+  .modal.wide {
+    width: 100%;
+    max-height: 90dvh;
+    border-radius: 22px 22px 0 0;
+    border-bottom: 0;
+    animation: sheet-up 260ms var(--ease);
+  }
+  .modal::before {
+    content: '';
+    flex: none;
+    width: 40px;
+    height: 5px;
+    margin: 9px auto 0;
+    border-radius: 3px;
+    background: var(--border-strong);
+  }
+  .modal footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* notices drop in from the top, clear of the dock and the keyboard */
+  .toast {
+    top: calc(var(--topbar) + 8px);
+    bottom: auto;
+    animation: drop 220ms var(--ease);
+  }
+
+  /* the start page: a launcher, not a leaflet */
+  .welcome {
+    padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0px));
+    animation: screen-in 240ms var(--ease);
+  }
+  .logo-lg {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 12px;
+  }
+  .welcome h1 {
+    font-size: 26px;
+  }
+  .promises {
+    display: none;
+  }
+  .tool {
+    padding: 18px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+    animation: screen-in 240ms var(--ease);
+  }
+  .more-menu {
+    right: max(8px, env(safe-area-inset-right, 0px));
+  }
+}
+
+/* a finger, not a pointer */
+@media (pointer: coarse) {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    -webkit-touch-callout: none;
+  }
+  button,
+  a,
+  select,
+  label,
+  [role='button'] {
+    touch-action: manipulation; /* no double-tap-to-zoom delay */
+  }
+  .topbar,
+  .ribbon,
+  .tabs,
+  .more-menu,
+  .modal header,
+  .modal footer,
+  .viewer,
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .btn:active:not(:disabled),
+  .icon-btn:active:not(:disabled),
+  .rb-btn:active,
+  .tcard:active,
+  .chip:active {
+    transform: scale(0.95);
+  }
+  .viewer,
+  .welcome,
+  .tool,
+  .panel-body,
+  .modal-body {
+    overscroll-behavior: contain;
+  }
+  .chip {
+    min-width: 36px;
+    height: 36px;
+  }
+  .editor-bar select {
+    height: 36px;
+  }
+  .drop p {
+    display: none; /* "drop a PDF here" means nothing without a mouse */
+  }
+  .drop {
+    padding: 22px 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  /* the sample files are a row of chips you swipe through, not a ragged wrap */
+  .samples {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    margin: 16px -16px 0;
+    padding: 0 16px;
+    scrollbar-width: none;
+  }
+  .samples::-webkit-scrollbar {
+    display: none;
+  }
+  .samples > * {
+    flex: none;
+  }
+}
+
+/* a phone on its side has no height to spare: slimmer bars, tools without captions */
+@media (max-width: 720px) and (max-height: 480px) {
+  :root {
+    --topbar: calc(44px + env(safe-area-inset-top, 0px));
+  }
+  .topbar .icon-btn,
+  .topbar .home-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .topbar .btn.primary {
+    height: 36px;
+  }
+  .rb-btn {
+    flex-direction: row;
+    width: 44px;
+    height: 40px;
+    padding: 0;
+  }
+  .rb-btn .rb-cap {
+    display: none;
+  }
+  .rb-tools {
+    padding: 4px 6px;
+  }
+  .ribbon .rb-panel {
+    margin: 4px 6px 4px 2px;
+  }
+  .rb-panel .count {
+    top: -2px;
+    right: 0;
+  }
+  .rb-style {
+    min-height: 44px;
+    padding: 4px 12px;
+  }
+  .panel {
+    height: 88dvh;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Find works on the page behind it: keep that sheet short so the matches stay in view above it */
+  .panel[data-tab='find'] {
+    height: min(52dvh, 430px);
+  }
+}
+
+@media (max-width: 720px) {
+  /* the "this page is a scan" card: text first, the button under it, instead of a sliver of text beside a big button */
+  .scan-banner {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 10px;
+  }
+  .scan-banner div {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .scan-banner .btn {
+    flex: 1 1 100%;
   }
 }

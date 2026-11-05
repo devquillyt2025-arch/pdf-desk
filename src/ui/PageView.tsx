@@ -186,6 +186,11 @@ function PageViewImpl(p: Props) {
   const topHit = ([x, y]: Pt) => [...overlayEdits].reverse().find((e) => hitOverlay(e.overlay!, x, y, 4 / Math.max(0.3, k)))
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // a second finger means pinch / pan, not another stroke: drop what the first one had begun
+    if (!e.isPrimary) {
+      if (gesture.current) finish(false)
+      return
+    }
     if (e.button !== 0 || p.showOriginal) return
     const pt = toPt(e)
     const capture = () => (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -225,6 +230,7 @@ function PageViewImpl(p: Props) {
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (!e.isPrimary) return
     const g = gesture.current
     const pt = toPt(e)
     if (!g) {
