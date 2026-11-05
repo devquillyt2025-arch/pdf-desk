@@ -1,5 +1,6 @@
 // Web Worker host: all MuPDF work happens here so the UI thread never blocks on a big page.
 import { PdfEngine } from './engine.ts'
+import { PdfTools } from './tools.ts'
 
 const loadFont = async (file: string) => {
   const res = await fetch(`${import.meta.env.BASE_URL}fonts/${file}`)
@@ -8,8 +9,11 @@ const loadFont = async (file: string) => {
 }
 
 const engine = new PdfEngine(loadFont)
+const tools = new PdfTools(engine.book)
 
-const METHODS = new Set(['open', 'analyze', 'getRuns', 'render', 'renderClip', 'renderPng', 'measure', 'export', 'addUserFont', 'dispose'])
+const METHODS = new Set(['open', 'analyze', 'getRuns', 'render', 'renderClip', 'renderPng', 'measure', 'export', 'addUserFont', 'addImage', 'detectTable', 'inferTable', 'fitTable', 'dispose'])
+// Stateless utilities are addressed as "tool:<name>" so they can never collide with the editing session.
+const TOOL_METHODS = new Set(['inspect', 'merge', 'rebuild', 'imagesToPdf', 'protect', 'unlock', 'stamp', 'stampPreview'])
 
 interface Call {
   id: number
@@ -25,9 +29,15 @@ const ctx = self as unknown as {
 ctx.onmessage = async (ev) => {
   const { id, method, args } = ev.data
   try {
-    if (!METHODS.has(method)) throw new Error(`Unknown method ${method}`)
-    const fn = (engine as unknown as Record<string, (...a: unknown[]) => unknown>)[method]
-    const result = (await fn.apply(engine, args)) as Record<string, unknown> | undefined
+    let target: object = engine
+    let name = method
+    if (method.startsWith('tool:')) {
+      name = method.slice(5)
+      if (!TOOL_METHODS.has(name)) throw new Error(`Unknown tool ${name}`)
+      target = tools
+    } else if (!METHODS.has(method)) throw new Error(`Unknown method ${method}`)
+    const fn = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[name]
+    const result = (await fn.apply(target, args)) as Record<string, unknown> | undefined
     const transfer: Transferable[] = []
     if (result && typeof result === 'object') {
       for (const k of ['rgba', 'png', 'bytes']) {
@@ -40,3 +50,7 @@ ctx.onmessage = async (ev) => {
     ctx.postMessage({ id, ok: false, error: e instanceof Error ? e.message : String(e) })
   }
 }
+
+// Importing MuPDF awaits its WASM module, and a message that arrives before `onmessage` is set is dropped.
+// So the client holds its calls until this worker announces that it is listening.
+ctx.postMessage({ ready: true })

@@ -11,6 +11,8 @@ export interface FontStyle {
   family: Family
   bold: boolean
   italic: boolean
+  /** use the bundled DejaVu face instead of the PDF base-14 equivalent (keeps a DejaVu document looking like itself) */
+  dejavu?: boolean
   /** font size in points */
   size: number
   color: Rgb
@@ -72,12 +74,87 @@ export interface TextRun {
   words?: OcrWord[]
 }
 
-export type EditKind = 'replace' | 'add' | 'erase'
+export type EditKind = 'replace' | 'add' | 'erase' | 'overlay' | 'table'
+
+export type Pt = [x: number, y: number]
+
+export type TableAlign = 'left' | 'center' | 'right'
+
+export interface TableCell {
+  text: string
+  /** background; null = none (the page shows through) */
+  fill: Rgb | null
+  /** text colour */
+  color: Rgb
+  family: Family
+  bold: boolean
+  italic: boolean
+  size: number
+  /** the original font was DejaVu: keep using the bundled DejaVu so the table keeps its look */
+  dejavu?: boolean
+  align: TableAlign
+}
+
+export interface TableBorders {
+  color: Rgb
+  /** pt */
+  width: number
+  /** the frame around the table */
+  outer: boolean
+  /** lines between rows */
+  innerH: boolean
+  /** lines between columns */
+  innerV: boolean
+}
+
+/** A table as a grid: column edges, row edges, and one cell per row × column. Page space, pt. */
+export interface TableModel {
+  /** column edges, left to right (columns + 1 values) */
+  xs: number[]
+  /** row edges, top to bottom (rows + 1 values) */
+  ys: number[]
+  cells: TableCell[][]
+  borders: TableBorders
+  /**
+   * Wrap long text inside its cell (rows grow to fit). Off = one line per cell, as many PDFs have it, even if it runs
+   * past the border. A table that came with overflowing text starts with this off, so redrawing it changes nothing
+   * you did not ask for. Missing = on.
+   */
+  wrap?: boolean
+}
+
+/**
+ * Editing a table redraws it: the old text and lines inside `clear` are removed and the model is drawn in their
+ * place. `clear` holds the old table box and any text that stuck out of its cells.
+ */
+export interface TableEdit {
+  model: TableModel
+  clear: Rect[]
+  /** the table is removed altogether */
+  deleted: boolean
+}
+
+/**
+ * Something drawn *on top of* a page without touching what is already there: markup, shapes, pen strokes,
+ * signatures and pictures. Geometry is in page space (pt). Unlike text edits they never remove content.
+ */
+export type Overlay =
+  | { type: 'highlight'; rects: Rect[]; color: Rgb; opacity: number }
+  | { type: 'underline' | 'strike'; rects: Rect[]; color: Rgb; width: number }
+  | { type: 'rect' | 'ellipse'; rect: Rect; stroke: Rgb | null; fill: Rgb | null; width: number; opacity: number }
+  | { type: 'line' | 'arrow'; a: Pt; b: Pt; color: Rgb; width: number }
+  /** freehand pen and signatures: each stroke is a list of points */
+  | { type: 'ink'; strokes: Pt[][]; color: Rgb; width: number }
+  | { type: 'image'; rect: Rect; imageId: string; opacity: number }
 
 export interface Edit {
   id: string
   page: number
   kind: EditKind
+  /** overlay: what to draw */
+  overlay?: Overlay
+  /** table: the redrawn table */
+  table?: TableEdit
   /** replace: the run being rewritten */
   run?: TextRun
   /** replace / add: the full new text */
@@ -94,6 +171,8 @@ export interface Edit {
   redact?: boolean
   /** replace: keep unchanged leading words in their original font/pixels (default true) */
   keepPrefix?: boolean
+  /** replace: the line was dragged somewhere else — how far in x and y, in pt. The whole line is then set down anew. */
+  move?: [dx: number, dy: number]
 }
 
 /** What the engine will do for one edit. Pure data, computed by plan.ts */

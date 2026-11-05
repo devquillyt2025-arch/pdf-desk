@@ -48,6 +48,18 @@ export function usePageEdits(edits: Edit[]): (page: number) => Edit[] {
   return (page) => next.get(page) ?? EMPTY
 }
 
+/**
+ * The edits that change the page *picture* (text edits). Overlays are drawn by the SVG layer instead, so moving or
+ * restyling one must not make the page render again — hence the same array back while only overlays changed.
+ */
+export function useTextEdits(edits: Edit[]): Edit[] {
+  const prev = useRef<Edit[]>([])
+  const next = edits.filter((e) => e.kind !== 'overlay')
+  if (next.length === prev.current.length && next.every((e, i) => e === prev.current[i])) return prev.current
+  prev.current = next
+  return next
+}
+
 export function useStoredState<T>(key: string, initial: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(() => {
     try {

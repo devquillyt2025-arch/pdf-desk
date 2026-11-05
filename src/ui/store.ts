@@ -1,4 +1,4 @@
-import type { Edit, PageInfo, PageSize, TextRun } from '../engine/types.ts'
+import type { Edit, Overlay, PageInfo, PageSize, TextRun } from '../engine/types.ts'
 
 /** Everything the user can undo. */
 export interface Snapshot {
@@ -22,6 +22,13 @@ export interface DocState {
   future: Snapshot[]
 }
 
+/** What a saved draft puts back when its file is opened again: the edits, and the text recognised on scanned pages. */
+export interface DraftRestore {
+  snapshot: Snapshot
+  ocr: DocState['ocr']
+  ocrRuns: Record<number, TextRun[]>
+}
+
 export const emptySnapshot = (): Snapshot => ({ edits: [], corrections: {}, verified: {} })
 
 export const initialDoc: DocState = {
@@ -37,7 +44,7 @@ export const initialDoc: DocState = {
 }
 
 export type DocAction =
-  | { type: 'open'; fileName: string; sizes: PageSize[] }
+  | { type: 'open'; fileName: string; sizes: PageSize[]; restore?: DraftRestore }
   | { type: 'close' }
   | { type: 'pageLoaded'; info: PageInfo; runs: TextRun[] }
   | { type: 'ocrDone'; page: number; runs: TextRun[]; lang: string; ms: number }
@@ -49,12 +56,18 @@ const MAX_HISTORY = 200
 
 export function docReducer(state: DocState, a: DocAction): DocState {
   switch (a.type) {
-    case 'open':
-      return { ...initialDoc, docId: state.docId + 1, fileName: a.fileName, sizes: a.sizes }
+    case 'open': {
+      const base = { ...initialDoc, docId: state.docId + 1, fileName: a.fileName, sizes: a.sizes }
+      // a restored draft starts with no undo history: it is the starting point
+      return a.restore ? { ...base, present: a.restore.snapshot, ocr: a.restore.ocr, runs: { ...a.restore.ocrRuns } } : base
+    }
     case 'close':
       return { ...initialDoc, docId: state.docId + 1 }
-    case 'pageLoaded':
-      return { ...state, infos: { ...state.infos, [a.info.index]: a.info }, runs: { ...state.runs, [a.info.index]: a.runs } }
+    case 'pageLoaded': {
+      // a page that was recognised keeps its recognised lines when the page itself is analysed later
+      const keep = state.ocr[a.info.index] && state.runs[a.info.index]
+      return { ...state, infos: { ...state.infos, [a.info.index]: a.info }, runs: keep ? state.runs : { ...state.runs, [a.info.index]: a.runs } }
+    }
     case 'ocrDone': {
       // Fresh recognition invalidates old corrections / proofreading marks for that page.
       const corrections = { ...state.present.corrections }
@@ -103,6 +116,14 @@ export const removeEdit =
   (s: Snapshot): Snapshot => {
     if (!s.edits.some((e) => e.id === id)) return s
     return { ...s, edits: s.edits.filter((e) => e.id !== id) }
+  }
+
+/** Change what an overlay draws (moved, resized, recoloured). */
+export const updateOverlayEdit =
+  (id: string, overlay: Overlay) =>
+  (s: Snapshot): Snapshot => {
+    if (!s.edits.some((e) => e.id === id)) return s
+    return { ...s, edits: s.edits.map((e) => (e.id === id ? { ...e, overlay } : e)) }
   }
 
 export const setCorrection =

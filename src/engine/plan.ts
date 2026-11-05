@@ -12,6 +12,11 @@ export function sameStyle(a: FontStyle, b: FontStyle): boolean {
   )
 }
 
+/** Has this text edit been dragged away from where its line was? (Less than a hundredth of a point does not count.) */
+export function isMoved(e: Edit): boolean {
+  return !!e.move && (Math.abs(e.move[0]) > 0.01 || Math.abs(e.move[1]) > 0.01)
+}
+
 export function commonPrefixLen(a: string, b: string): number {
   const n = Math.min(a.length, b.length)
   let i = 0
@@ -28,6 +33,9 @@ export function commonPrefixLen(a: string, b: string): number {
  * anti-aliasing fringe) instead of inset (to avoid touching neighbouring glyphs on text pages).
  */
 export function planEdit(edit: Edit, raster: boolean): EditPlan {
+  // Overlays only paint on top; they never clear or retype anything.
+  if (edit.kind === 'overlay') return { clear: null, draw: null, keep: 0, noop: true }
+
   if (edit.kind === 'add') {
     const has = edit.text.trim() !== ''
     return {
@@ -48,7 +56,18 @@ export function planEdit(edit: Edit, raster: boolean): EditPlan {
   const oldText = run.text
   const newText = edit.text
   const styleChanged = !sameStyle(edit.style, run.style)
-  if (newText === oldText && !styleChanged) return { clear: null, draw: null, keep: oldText.length, noop: true }
+  const moved = isMoved(edit)
+  if (newText === oldText && !styleChanged && !moved) return { clear: null, draw: null, keep: oldText.length, noop: true }
+
+  if (moved) {
+    // The line is lifted and put down elsewhere: nothing of it stays where it was, so no leading words are kept.
+    const [dx, dy] = edit.move!
+    const gap = run.size * 0.08
+    const [x0, y0, x1, y1] = run.rect
+    const clear: Rect = raster ? [x0 - gap, y0 - gap, x1 + gap, y1 + gap] : [x0, y0 + gap, x1, y1 - gap]
+    const draw = newText !== '' ? { text: newText, x: run.xs[0] + dx, baseline: run.baseline + dy, style: edit.style } : null
+    return { clear, draw, keep: 0, noop: false }
+  }
 
   let keep = 0
   if (edit.keepPrefix !== false && !styleChanged) {

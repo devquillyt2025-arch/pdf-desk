@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Edit, VerifyReport } from '../engine/types.ts'
-import { Icon } from './icons.tsx'
+import { OVERLAY_LABEL } from '../engine/overlay.ts'
+import { cropSignature, simplify, type Signature } from './draw.ts'
+import { Icon, type IconName } from './icons.tsx'
+import type { Pt } from '../engine/types.ts'
 
-export function Modal(p: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; footer?: ReactNode; tone?: 'ok' | 'warn' | 'neutral'; icon?: 'shield' | 'alert' | 'lock' | 'font' }) {
+export function Modal(p: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; footer?: ReactNode; tone?: 'ok' | 'warn' | 'neutral'; icon?: IconName }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null
@@ -74,6 +77,132 @@ export function PasswordModal(p: { error: boolean; onSubmit: (pw: string) => voi
   )
 }
 
+/** Draw a signature with the mouse, finger or pen. */
+export function SignatureModal(p: { onUse: (s: Signature) => void; onClose: () => void }) {
+  const cv = useRef<HTMLCanvasElement>(null)
+  const strokes = useRef<Pt[][]>([])
+  const live = useRef<Pt[] | null>(null)
+  const [count, setCount] = useState(0)
+  const W = 520
+  const H = 200
+
+  const paint = () => {
+    const c = cv.current
+    if (!c) return
+    const g = c.getContext('2d')!
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    c.width = W * dpr
+    c.height = H * dpr
+    g.scale(dpr, dpr)
+    g.lineCap = 'round'
+    g.lineJoin = 'round'
+    g.lineWidth = 2.6
+    g.strokeStyle = '#111827'
+    for (const s of [...strokes.current, ...(live.current ? [live.current] : [])]) {
+      if (!s.length) continue
+      g.beginPath()
+      g.moveTo(s[0][0], s[0][1])
+      if (s.length === 1) g.lineTo(s[0][0] + 0.01, s[0][1])
+      for (let i = 1; i < s.length - 1; i++) g.quadraticCurveTo(s[i][0], s[i][1], (s[i][0] + s[i + 1][0]) / 2, (s[i][1] + s[i + 1][1]) / 2)
+      if (s.length > 1) g.lineTo(s[s.length - 1][0], s[s.length - 1][1])
+      g.stroke()
+    }
+  }
+  useEffect(paint, [])
+
+  const pos = (e: React.PointerEvent): Pt => {
+    const r = cv.current!.getBoundingClientRect()
+    return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H]
+  }
+  const done = () => {
+    const s = strokes.current.filter((x) => x.length)
+    if (!s.length) return
+    p.onUse(cropSignature({ w: W, h: H, strokes: s.map((x) => simplify(x, 1)) }))
+  }
+  return (
+    <Modal
+      title="Draw your signature"
+      icon="sign"
+      onClose={p.onClose}
+      footer={
+        <>
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={!count}
+            onClick={() => {
+              strokes.current = []
+              live.current = null
+              setCount(0)
+              paint()
+            }}
+          >
+            Clear
+          </button>
+          <span className="spacer" />
+          <button type="button" className="btn" onClick={p.onClose}>
+            Cancel
+          </button>
+          <button type="button" className="btn primary" disabled={!count} onClick={done}>
+            Use this signature
+          </button>
+        </>
+      }
+    >
+      <p className="muted small">Sign inside the box with your mouse, finger or a pen. It is saved on this device so you can reuse it, and placed as a drawing you can move and resize.</p>
+      <div className="sig-pad">
+        <canvas
+          ref={cv}
+          style={{ width: '100%', aspectRatio: `${W} / ${H}` }}
+          onPointerDown={(e) => {
+            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+            live.current = [pos(e)]
+            paint()
+          }}
+          onPointerMove={(e) => {
+            if (!live.current) return
+            live.current.push(pos(e))
+            paint()
+          }}
+          onPointerUp={() => {
+            if (live.current) strokes.current.push(live.current)
+            live.current = null
+            setCount(strokes.current.length)
+            paint()
+          }}
+          aria-label="Signature pad"
+        />
+        {!count && <span className="sig-hint">Sign here</span>}
+        <span className="sig-line" aria-hidden="true" />
+      </div>
+    </Modal>
+  )
+}
+
+/** Ask before something that can't be undone, e.g. closing a document that has unsaved edits. */
+export function ConfirmModal(p: { title: string; children: ReactNode; confirmLabel: string; cancelLabel?: string; onConfirm: () => void; onClose: () => void }) {
+  return (
+    <Modal
+      title={p.title}
+      icon="alert"
+      tone="warn"
+      onClose={p.onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={p.onClose} data-autofocus>
+            {p.cancelLabel ?? 'Keep editing'}
+          </button>
+          <button type="button" className="btn primary" onClick={p.onConfirm}>
+            {p.confirmLabel}
+          </button>
+        </>
+      }
+    >
+      {p.children}
+    </Modal>
+  )
+}
+
 export interface ProofStats {
   total: number
   verified: number
@@ -85,6 +214,8 @@ export function ReportModal(p: {
   proof: ProofStats
   fileName: string
   size: number
+  /** shown when the cloud library is set up: keep this saved PDF there too */
+  keep?: { state: 'idle' | 'busy' | 'done'; signedIn: boolean; onKeep: () => void } | null
   onDownload: () => void
   onClose: () => void
 }) {
@@ -105,6 +236,12 @@ export function ReportModal(p: {
           <button type="button" className="btn" onClick={p.onClose}>
             Back to editing
           </button>
+          {p.keep && (
+            <button type="button" className="btn" disabled={p.keep.state !== 'idle'} onClick={p.keep.onKeep} title="Store this saved PDF in your cloud library">
+              <Icon name={p.keep.state === 'done' ? 'cloudCheck' : p.keep.state === 'busy' ? 'loader' : 'cloudUp'} size={16} className={p.keep.state === 'busy' ? 'spin' : ''} />
+              {p.keep.state === 'done' ? 'Kept in library' : p.keep.state === 'busy' ? 'Uploading…' : p.keep.signedIn ? 'Keep in library' : 'Unlock to keep in library'}
+            </button>
+          )}
           <button type="button" className={`btn ${report.ok ? 'primary' : ''}`} onClick={p.onDownload} data-autofocus>
             <Icon name="download" size={16} /> {report.ok ? 'Download PDF' : 'Download anyway'} <small>{fmt(p.size)}</small>
           </button>
@@ -143,9 +280,9 @@ export function ReportModal(p: {
                 <li key={v.id} className={v.ok ? 'ok' : 'bad'}>
                   <Icon name={v.ok ? 'checkCircle' : 'alert'} size={16} />
                   <div>
-                    <span className="kind">{e ? (e.kind === 'replace' ? 'Edited' : e.kind === 'add' ? 'Added' : 'Erased') : 'Edit'}</span>
+                    <span className="kind">{e ? (e.kind === 'replace' ? (e.move && e.text === e.run!.text ? 'Moved' : 'Edited') : e.kind === 'add' ? 'Added' : e.kind === 'overlay' ? OVERLAY_LABEL[e.overlay!.type] : e.kind === 'table' ? 'Table' : 'Erased') : 'Edit'}</span>
                     {v.ok ? (
-                      <span className="v-text">{e?.kind === 'erase' ? 'Area cleared — nothing left behind' : <>“{e?.text ?? v.expected}”</>}</span>
+                      <span className="v-text">{e?.kind === 'erase' ? 'Area cleared — nothing left behind' : e?.kind === 'overlay' ? 'Added on top — the page underneath is unchanged' : e?.kind === 'table' ? (e.table!.deleted ? 'Table removed — nothing of it is left on the page' : <>Redrawn — every cell reads as you set it, nothing else on the page moved</>) : <>“{e?.text ?? v.expected}”</>}</span>
                     ) : (
                       <span className="v-text">
                         expected “{v.expected}”, found “{v.actual}”

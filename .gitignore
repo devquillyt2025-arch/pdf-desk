@@ -5,3 +5,10 @@ public/fonts
 public/tesseract
 public/tessdata
 *.log
+
+.vercel
+
+# secrets: never commit these
+.env
+.env.*
+!.env.example

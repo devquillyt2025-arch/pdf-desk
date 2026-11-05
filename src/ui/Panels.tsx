@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { EngineClient } from '../engine/client.ts'
+import { OVERLAY_LABEL } from '../engine/overlay.ts'
 import type { Edit, PageInfo, TextRun } from '../engine/types.ts'
 import { LANGUAGES, reviewReasons } from '../ocr/ocr.ts'
 import { useNearViewport } from './hooks.ts'
@@ -8,7 +9,16 @@ import type { Snapshot } from './store.ts'
 
 // --------------------------------------------------------------------------------------- changes
 
-const KIND_LABEL = { replace: 'Edited text', add: 'Added text', erase: 'Erased area' } as const
+const KIND_LABEL = { replace: 'Edited text', add: 'Added text', erase: 'Erased area', table: 'Table' } as const
+/** a line that was only dragged elsewhere (its words are as they were) */
+const onlyMoved = (e: Edit) => e.kind === 'replace' && !!e.move && e.text === e.run!.text
+const label = (e: Edit) => (e.kind === 'overlay' ? OVERLAY_LABEL[e.overlay!.type] : onlyMoved(e) ? 'Moved text' : KIND_LABEL[e.kind])
+/** One short line about an overlay for the Changes list (the page underneath is never altered). */
+const overlayNote = (e: Edit) => {
+  const o = e.overlay!
+  if (o.type === 'highlight' || o.type === 'underline' || o.type === 'strike') return `${o.rects.length} line${o.rects.length === 1 ? '' : 's'} of text`
+  return 'Added on top'
+}
 
 export function ChangesPanel(p: { edits: Edit[]; corrections: number; onJump: (e: Edit) => void; onRemove: (id: string) => void }) {
   if (!p.edits.length && !p.corrections) {
@@ -16,7 +26,9 @@ export function ChangesPanel(p: { edits: Edit[]; corrections: number; onJump: (e
       <div className="empty">
         <Icon name="pencil" size={28} />
         <h3>No changes yet</h3>
-        <p>Click any text on the page to edit it. Use <kbd>T</kbd> to add new text and <kbd>X</kbd> to erase an area.</p>
+        <p>
+          Click any text to edit it. <kbd>T</kbd> adds text, <kbd>H</kbd> highlights, <kbd>G</kbd> signs, <kbd>X</kbd> erases — or press <kbd>Ctrl</kbd>+<kbd>F</kbd> to find and replace.
+        </p>
       </div>
     )
   }
@@ -26,9 +38,15 @@ export function ChangesPanel(p: { edits: Edit[]; corrections: number; onJump: (e
         {p.edits.map((e) => (
           <li key={e.id} className="change">
             <button type="button" className="change-main" onClick={() => p.onJump(e)}>
-              <span className={`badge kind-${e.kind}`}>{KIND_LABEL[e.kind]}</span>
+              <span className={`badge kind-${e.kind}`}>{label(e)}</span>
               <span className="change-text">
-                {e.kind === 'replace' && (
+                {onlyMoved(e) && (
+                  <>
+                    <ins>{e.text}</ins>
+                    <span className="muted small"> · {Math.round(Math.abs(e.move![0]))} pt {e.move![0] >= 0 ? 'right' : 'left'}, {Math.round(Math.abs(e.move![1]))} pt {e.move![1] >= 0 ? 'down' : 'up'}</span>
+                  </>
+                )}
+                {e.kind === 'replace' && !onlyMoved(e) && (
                   <>
                     <del>{e.run!.text}</del>
                     <Icon name="arrowRight" size={13} />
@@ -37,6 +55,8 @@ export function ChangesPanel(p: { edits: Edit[]; corrections: number; onJump: (e
                 )}
                 {e.kind === 'add' && <ins>{e.text}</ins>}
                 {e.kind === 'erase' && <span className="muted">{e.redact ? 'Redacted with a black box' : 'Content removed'}</span>}
+                {e.kind === 'overlay' && <span className="muted">{overlayNote(e)}</span>}
+                {e.kind === 'table' && <span className="muted">{e.table!.deleted ? 'Table removed' : `Redrawn as ${e.table!.model.ys.length - 1} rows × ${e.table!.model.xs.length - 1} columns`}</span>}
               </span>
               <span className="muted small">Page {e.page + 1}</span>
             </button>

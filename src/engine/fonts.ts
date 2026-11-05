@@ -80,8 +80,9 @@ export class FontBook {
 
   /** Faces to try, in priority order, for a style. */
   async facesFor(style: FontStyle, needFallback: boolean): Promise<Face[]> {
-    const out: Face[] = [this.base14(style)]
-    if (needFallback) out.push(await this.dejavu(style))
+    // `style.dejavu`: the text came from a DejaVu document, so keep that look instead of switching to Helvetica
+    const out: Face[] = style.dejavu ? [await this.dejavu(style)] : [this.base14(style)]
+    if (needFallback && !style.dejavu) out.push(await this.dejavu(style))
     out.push(...this.user)
     return out
   }
@@ -155,6 +156,8 @@ export function encodeForFace(face: Face, text: string): string {
 export class DocFonts {
   private doc: mupdf.PDFDocument
   private refs = new Map<string, { name: string; ref: mupdf.PDFObject }>()
+  /** Resource names must not collide with those of an earlier edit session (a file we exported before, opened again). */
+  private tag = Math.random().toString(36).slice(2, 6)
   usedCid = false
 
   constructor(doc: mupdf.PDFDocument) {
@@ -166,7 +169,7 @@ export class DocFonts {
     if (!r) {
       const ref = face.simple ? this.doc.addSimpleFont(face.font, 'Latin') : this.doc.addFont(face.font)
       if (!face.simple) this.usedCid = true
-      r = { name: `PDEdF${this.refs.size + 1}`, ref }
+      r = { name: `PDEdF${this.tag}${this.refs.size + 1}`, ref }
       this.refs.set(face.key, r)
     }
     return r.name
